@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enhanced Eye Tracking with Warm and Cool Modes</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils"></script>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            transition: background-color 0.3s, color 0.3s;
+        }
+        body.cool-mode {
+            background-color: #e0f7fa;
+            color: #004d40;
+        }
+        body.warm-mode {
+            background-color: #fff3e0;
+            color: #bf360c;
+        }
+        .container {
+            max-width: 900px;
+            margin: auto;
+            text-align: center;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            font-size: 24px;
+            margin-bottom: 20px;
+        }
+        .results {
+            font-size: 18px;
+            margin-bottom: 20px;
+        }
+        .video-wrapper {
+            position: relative;
+            max-width: 100%;
+            margin: auto;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+        .input_video {
+            display: none;
+        }
+        .display_video {
+            display: block;
+            width: 100%;
+            border-radius: 10px;
+        }
+        canvas {
+            display: block;
+            margin: auto;
+            border-radius: 10px;
+            max-width: 100%;
+        }
+        .mode-toggle-container {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            display: flex;
+            gap: 10px;
+        }
+        .mode-toggle {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .mode-label {
+            font-size: 14px;
+        }
+        .control-buttons {
+            margin-left: 20px;
+        }
+        .control-button {
+            padding: 8px 16px;
+            margin-left: 5px;
+            cursor: pointer;
+            border: none;
+            border-radius: 5px;
+            background-color: #4caf50;
+            color: white;
+            font-size: 14px;
+        }
+        .control-button.stop {
+            background-color: #f44336;
+        }
+    </style>
+</head>
+<body class="cool-mode">
+
+<div class="mode-toggle-container">
+    <div class="mode-toggle">
+        <label for="coolMode" class="mode-label">Cool Mode</label>
+        <input type="radio" id="coolMode" name="mode" checked onclick="setMode('cool')">
+    </div>
+    <div class="mode-toggle">
+        <label for="warmMode" class="mode-label">Warm Mode</label>
+        <input type="radio" id="warmMode" name="mode" onclick="setMode('warm')">
+    </div>
+    <div class="control-buttons">
+        <button class="control-button" id="startButton" onclick="startTracking()">Start</button>
+        <button class="control-button stop" id="stopButton" onclick="stopTracking()">Stop</button>
+    </div>
+</div>
+
+<div class="container">
+    <h1>Enhanced Eye Tracking with Fixations and Heatmaps</h1>
+    <div class="video-wrapper">
+        <video class="display_video" autoplay muted loop>
+            <source src="nature.mp4" type="video/mp4">
+            Your browser does not support the video tag.
+        </video>
+        <video class="input_video" autoplay playsinline style="display: none;"></video>
+    </div>
+    <canvas class="output_canvas" style="display: none;"></canvas>
+    <canvas class="heatmap"></canvas>
+    <div class="results">
+        <p>Blinks Detected: <span id="blink-counter">0</span></p>
+        <p>Head Turns Detected: <span id="head-movement-counter">0</span></p>
+        <p>Fixation Count: <span id="fixation-counter">0</span></p>
+        <p>Fixation Duration: <span id="fixation-duration">0</span> min</p>
+        <p>Time to First Fixation: <span id="time-first-fixation">0</span> min</p>
+    </div>
+</div>
+
+<script>
+    let name = new URLSearchParams(window.location.search).get('name');
+    let age = new URLSearchParams(window.location.search).get('age');
+    let blinkCounter = 0;
+    let headTurnCounter = 0;
+    let fixationCounter = 0;
+    let isFixating = false;
+    let wasFixating = false;
+    let fixationStartTime = 0;
+    let cumulativeFixationTime = 0;
+    let firstFixationTime = null;
+    let heatmapBuffer = [];
+    let lastFixationPoint = { x: 0, y: 0 };
+    let isBlinking = false;
+    let lastBlinkTime = 0;
+    let previousYaw = null;
+    let previousPitch = null;
+    let lastHeadTurnTime = 0;
+    let headTurnActive = false;
+    let centerReturnDetected = false;
+    let headTurnDetected = false;
+    let detectionWindowStart = 0;
+    let cooldownActive = false;
+    let pitchChangeCooldownActive = false;
+    let significantPitchChangeDetected = false;
+    let lastFixationUpdateTime = 0;
+    let isTracking = false;
+    let camera;
+
+    const fixationThreshold = 10;
+    const blinkCooldown = 500;
+    const yawThreshold = 3.0;
+    const pitchThreshold = 5.0;
+    const headTurnCooldown = 1000;
+    const centerReturnThreshold = 2.0;
+    const detectionWindowDuration = 2000;
+    const blinkThreshold = 0.25;
+    const minBlinkFrames = 3;
+    const pitchChangeCooldown = 1000;
+    const fixationDebounceTime = 1000;
+
+    const videoElement = document.querySelector('.input_video');
+    const canvasElement = document.querySelector('.output_canvas');
+    const canvasCtx = canvasElement.getContext('2d');
+    const heatmapCtx = document.querySelector('.heatmap').getContext('2d');
+
+    function setMode(mode) {
+        if (mode === 'cool') {
+            document.body.classList.remove('warm-mode');
+            document.body.classList.add('cool-mode');
+        } else if (mode === 'warm') {
+            document.body.classList.remove('cool-mode');
+            document.body.classList.add('warm-mode');
+        }
+    }
+
+    function startTracking() {
+        if (!isTracking) {
+            camera = new Camera(videoElement, {
+                onFrame: async () => {
+                    if (isTracking) {
+                        await faceMesh.send({ image: videoElement });
+                    }
+                },
+                width: 640,
+                height: 480,
+            });
+            camera.start();
+            isTracking = true;
+            console.log('Tracking started');
+        }
+    }
+
+    function stopTracking() {
+    if (isTracking && camera) {
+        camera.stop();
+        isTracking = false;
+        console.log('Tracking stopped');
+
+        // Convert the cumulative fixation time from milliseconds to minutes properly
+        const formattedFixationDuration = (cumulativeFixationTime / 60000).toFixed(2);
+
+        // Prepare data to send
+        const data = {
+            name: name,
+            age: age,
+            blinkCount: blinkCounter,
+            headTurnCount: headTurnCounter,
+            fixationCount: fixationCounter,
+            fixationDuration: formattedFixationDuration // Ensure this is in minutes
+        };
+
+        console.log('Data to be sent:', data);
+
+        // Send data to server
+        fetch('http://localhost:3000/send-email', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(data),
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+            return response.json();
+        })
+        .then(result => {
+            alert(`Data stored successfully for ${name}`);
+            console.log(result);
+        })
+        .catch(error => {
+            console.error('Error storing data:', error);
+        });
+    }
+}
+
+
+
+
+    function distance(point1, point2) {
+        return Math.sqrt(
+            Math.pow(point2.x - point1.x, 2) +
+            Math.pow(point2.y - point1.y, 2)
+        );
+    }
+
+    function detectFixation(currentPoint) {
+        const onScreenArea = {
+            xMin: 0.2 * canvasElement.width,
+            xMax: 0.8 * canvasElement.width,
+            yMin: 0.2 * canvasElement.height,
+            yMax: 0.8 * canvasElement.height
+        };
+
+        const isOnScreen = currentPoint.x >= onScreenArea.xMin &&
+                           currentPoint.x <= onScreenArea.xMax &&
+                           currentPoint.y >= onScreenArea.yMin &&
+                           currentPoint.y <= onScreenArea.yMax;
+
+        const dist = distance(currentPoint, lastFixationPoint);
+
+        if (dist < fixationThreshold && !headTurnActive && isOnScreen && !isBlinking) {
+            if (!isFixating) {
+                const currentTime = performance.now();
+                if (currentTime - lastFixationUpdateTime > fixationDebounceTime) {
+                    fixationCounter++;
+                    document.getElementById('fixation-counter').innerText = fixationCounter;
+                    lastFixationUpdateTime = currentTime;
+                }
+
+                isFixating = true;
+                wasFixating = true;
+
+                if (!firstFixationTime) {
+                    firstFixationTime = performance.now() / 60000;
+                    document.getElementById('time-first-fixation').innerText = firstFixationTime.toFixed(2);
+                }
+
+                fixationStartTime = performance.now();
+            }
+
+            const currentTime = performance.now();
+            if (fixationStartTime > 0) {
+                cumulativeFixationTime += (currentTime - fixationStartTime);
+                fixationStartTime = currentTime;
+            }
+
+            const duration = (cumulativeFixationTime / 60000).toFixed(2);
+            document.getElementById('fixation-duration').innerText = duration;
+        } else {
+            if (isFixating) {
+                isFixating = false;
+                if (fixationStartTime > 0) {
+                    cumulativeFixationTime += (performance.now() - fixationStartTime);
+                    fixationStartTime = 0;
+                }
+            }
+            wasFixating = false;
+        }
+
+        lastFixationPoint = currentPoint;
+    }
+
+    function drawHeatmap() {
+        heatmapCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+        heatmapBuffer.forEach(point => {
+            heatmapCtx.beginPath();
+            heatmapCtx.arc(point.x, point.y, 10, 0, 2 * Math.PI);
+            heatmapCtx.fillStyle = document.body.classList.contains('cool-mode') ? 'rgba(0, 191, 255, 0.3)' : 'rgba(255, 140, 0, 0.3)';
+            heatmapCtx.fill();
+        });
+        heatmapBuffer = [];
+    }
+
+    function calculateYawAngle(landmarks) {
+        const leftEye = landmarks[33];
+        const rightEye = landmarks[263];
+        const deltaX = rightEye.x - leftEye.x;
+        const deltaY = rightEye.y - leftEye.y;
+        return Math.atan2(deltaY, deltaX) * (180 / Math.PI);
+    }
+
+    function calculatePitchAngle(landmarks) {
+        const noseTip = landmarks[1];
+        const chin = landmarks[152];
+        const deltaY = chin.y - noseTip.y;
+        const deltaX = chin.x - noseTip.x;
+        return Math.atan2(deltaY, deltaX) * (180 / Math.PI);
+    }
+
+    function detectHeadTurn(currentYaw, currentPitch) {
+        const currentTime = performance.now();
+        if (previousYaw === null) previousYaw = currentYaw;
+        if (previousPitch === null) previousPitch = currentPitch;
+
+        const yawDifference = Math.abs(currentYaw - previousYaw);
+        const pitchDifference = Math.abs(currentPitch - previousPitch);
+
+        if ((yawDifference > yawThreshold || pitchDifference > pitchThreshold) && !headTurnDetected) {
+            if (currentTime - detectionWindowStart > detectionWindowDuration) {
+                headTurnActive = true;
+                headTurnDetected = true;
+                centerReturnDetected = false;
+                detectionWindowStart = currentTime;
+            }
+        }
+
+        if (headTurnActive && yawDifference <= centerReturnThreshold && pitchDifference <= centerReturnThreshold) {
+            if (!centerReturnDetected && currentTime - lastHeadTurnTime > headTurnCooldown) {
+                headTurnCounter++;
+                document.getElementById('head-movement-counter').innerText = headTurnCounter;
+                lastHeadTurnTime = currentTime;
+                centerReturnDetected = true;
+                headTurnActive = false;
+                headTurnDetected = false;
+            }
+        }
+
+        previousYaw = currentYaw;
+        previousPitch = currentPitch;
+    }
+
+    function detectBlink(landmarks) {
+        const leftEyeIndices = [33, 160, 158, 133, 153, 144];
+        const rightEyeIndices = [362, 385, 387, 263, 373, 380];
+
+        if (!landmarks[33] || !landmarks[263]) {
+            isBlinking = false;
+            return;
+        }
+
+        const leftEAR = calculateEyeAspectRatio(landmarks, leftEyeIndices);
+        const rightEAR = calculateEyeAspectRatio(landmarks, rightEyeIndices);
+        const ear = (leftEAR + rightEAR) / 2;
+
+        if (significantPitchChangeDetected) {
+            isBlinking = false;
+            return;
+        }
+
+        if (ear < blinkThreshold && !isBlinking) {
+            isBlinking = true;
+            lastBlinkTime = performance.now();
+        } else if (ear >= blinkThreshold && isBlinking) {
+            const currentTime = performance.now();
+            if (currentTime - lastBlinkTime > minBlinkFrames && !cooldownActive) {
+                blinkCounter++;
+                document.getElementById('blink-counter').innerText = blinkCounter;
+                isBlinking = false;
+                cooldownActive = true;
+                setTimeout(() => cooldownActive = false, blinkCooldown);
+            }
+        }
+    }
+
+    function calculateEyeAspectRatio(landmarks, eyeLandmarks) {
+        if (!eyeLandmarks.every(index => landmarks[index])) {
+            return 1;
+        }
+
+        const vertical1 = distance(landmarks[eyeLandmarks[1]], landmarks[eyeLandmarks[5]]);
+        const vertical2 = distance(landmarks[eyeLandmarks[2]], landmarks[eyeLandmarks[4]]);
+        const horizontal = distance(landmarks[eyeLandmarks[0]], landmarks[eyeLandmarks[3]]);
+        return (vertical1 + vertical2) / (2.0 * horizontal);
+    }
+
+    const faceMesh = new FaceMesh({
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`,
+    });
+
+    faceMesh.setOptions({
+        maxNumFaces: 1,
+        refineLandmarks: true,
+        minDetectionConfidence: 0.6,
+        minTrackingConfidence: 0.7,
+    });
+
+    faceMesh.onResults((results) => {
+        if (isTracking) {
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+            if (results.multiFaceLandmarks.length > 0) {
+                const landmarks = results.multiFaceLandmarks[0];
+                const leftEyeCenter = {
+                    x: (landmarks[33].x + landmarks[133].x) / 2 * canvasElement.width,
+                    y: (landmarks[33].y + landmarks[133].y) / 2 * canvasElement.height
+                };
+
+                detectFixation(leftEyeCenter);
+
+                const currentYaw = calculateYawAngle(landmarks);
+                const currentPitch = calculatePitchAngle(landmarks);
+
+                detectHeadTurn(currentYaw, currentPitch);
+                if (!headTurnActive) {
+                    detectBlink(landmarks);
+                }
+            } else {
+                isBlinking = false;
+                isFixating = false;
+            }
+        }
+    });
+
+    function updateHeatmap() {
+        drawHeatmap();
+        setTimeout(updateHeatmap, 200);
+    }
+
+    updateHeatmap();
+</script>
+
+</body>
+</html>

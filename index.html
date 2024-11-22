@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Eye Testing App Login</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        body {
+            background: url('eye2.jpg') no-repeat center center/cover;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: #333;
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+        .form-overlay {
+            width: 100%;
+            max-width: 450px;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            padding: 40px;
+            text-align: center;
+        }
+        .form-overlay h2 {
+            font-size: 30px;
+            margin-bottom: 20px;
+            color: #4db6ac;
+            font-weight: bold;
+        }
+        .form-overlay p {
+            margin: 5px 0 20px;
+            font-size: 16px;
+            color: #666;
+        }
+        .form-container input {
+            display: block;
+            margin: 12px auto;
+            padding: 14px;
+            width: calc(100% - 28px);
+            border-radius: 10px;
+            border: 1px solid #ddd;
+            font-size: 16px;
+        }
+        .form-container input:focus {
+            outline: none;
+            border-color: #4db6ac;
+            box-shadow: 0 0 8px rgba(77, 182, 172, 0.5);
+        }
+        .form-container button {
+            padding: 14px 20px;
+            width: 100%;
+            background-color: #4db6ac;
+            color: #fff;
+            border: none;
+            border-radius: 10px;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background-color 0.3s ease, transform 0.1s;
+        }
+        .form-container button:hover {
+            background-color: #3c9a8b;
+        }
+        .form-container button:active {
+            transform: scale(0.98);
+        }
+        .form-footer {
+            margin-top: 20px;
+            font-size: 14px;
+            color: #777;
+        }
+        .form-footer a {
+            color: #4db6ac;
+            text-decoration: none;
+        }
+        .form-footer a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="form-overlay">
+        <h2>Welcome to My App</h2>
+        <p>Please enter your details to start</p>
+        <div class="form-container">
+            <input type="text" id="nameInput" placeholder="Full Name" required>
+            <input type="number" id="ageInput" placeholder="Age" required min="1" max="120">
+            <button onclick="submitForm()">Start</button>
+        </div>
+        <div class="form-footer">
+            <p>Your vision, our precision. <a href="#">Learn more</a></p>
+        </div>
+    </div>
+
+    <script>
+        function submitForm() {
+            const name = document.getElementById('nameInput').value.trim();
+            const age = document.getElementById('ageInput').value.trim();
+
+            if (name && age) {
+                window.location.href = `app.html?name=${encodeURIComponent(name)}&age=${encodeURIComponent(age)}`;
+            } else {
+                alert('Please fill in both fields.');
+            }
+        }
+    </script>
+</body>
+</html>
